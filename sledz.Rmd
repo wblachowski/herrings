@@ -1,0 +1,92 @@
+---
+title: "Sledz"
+author: "Wojciech Blachowski"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Podsumowanie
+
+## Wykorzystane biblioteki
+```{r libs}
+install.packages("corrplot")
+install.packages("mice")
+library(corrplot)
+library(mice)
+library(ggplot2)
+library(dplyr)
+library(caret)
+```
+## Powtarzalność wyników
+```{r powtarzalnosc}
+set.seed(420)
+```
+## Wczytywanie danych z pliku
+Wczytywanie danych odbywa się z użyciem funkcji `read.csv`. Przekazanie znaku zapytania jako argumentu `na.strings` powoduje, że wszystkie brakujące wartości zostaną poprawnie oznaczone jako NA.
+```{r}
+data <- read.csv("sledzie.csv", na.strings = "?")
+```
+## Przetwarzanie brakujących danych
+```{r}
+data <- complete(mice(data, meth='cart', seed = 420))
+```
+## Podstawowe statystyki dotyczące zbioru
+Rozmiar zbioru:
+```{r}
+nrow(data)
+```
+Liczba atrybutów:
+```{r}
+ncol(data)
+```
+Wartości:
+```{r}
+head(data)
+```
+
+## Szczegółowa analiza wartości atrybutów
+```{r}
+summary(data)
+```
+## Korelacja między zmiennymi
+```{r}
+corrplot(cor(data, use = "complete.obs"), type="upper")
+```
+## Zmiana rozmiaru śledzi w czasie
+```{r}
+data_len <- select(data, X, length)
+n <- 200
+data_aggr <- aggregate(data_len,list(rep(1:(nrow(data_len)%/%n+1),each=n,len=nrow(data_len))),mean)[-1]
+ggplot(data_aggr, aes(x=X, y=length)) + geom_line()
+```
+## Regresor przewidujący rozmiar śledzia
+
+## Analiza ważności atrybutów 
+
+## 
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, Pdata, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
