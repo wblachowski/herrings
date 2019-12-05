@@ -11,17 +11,20 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Podsumowanie
+## Podsumowanie analizy
+Przedmiotem analizy był zbiór zawierający pomiary trzyletnich śledzi oraz stanu środowiska, w którym żyją. Dane były zbierane na przestrzeni ostatnich 60 lat. Celem analizy było odkrycie przyczyny spadku długości śledzi na przestrzeni lat.
 
 ## Wykorzystane biblioteki
-```{r libs}
-install.packages("corrplot")
-install.packages("mice")
+```{r echo = FALSE}
 library(corrplot)
 library(mice)
 library(ggplot2)
+library(plotly)
 library(dplyr)
 library(caret)
+library(reshape2)
+library(knitr)
+library(kableExtra)
 ```
 ## Powtarzalność wyników
 ```{r powtarzalnosc}
@@ -29,64 +32,96 @@ set.seed(420)
 ```
 ## Wczytywanie danych z pliku
 Wczytywanie danych odbywa się z użyciem funkcji `read.csv`. Przekazanie znaku zapytania jako argumentu `na.strings` powoduje, że wszystkie brakujące wartości zostaną poprawnie oznaczone jako NA.
-```{r}
+```{r wczytywanie}
 data <- read.csv("sledzie.csv", na.strings = "?")
 ```
 ## Przetwarzanie brakujących danych
-```{r}
+W celu uzupełnienia brakujących wartości wykorzystano bibliotekę `mice`. Skorzystano z metody `cart`, która stosuje drzewa regresyjne w celu predykcji brakujących wartości:
+```{r uzupelnianie}
 data <- complete(mice(data, meth='cart', seed = 420))
 ```
 ## Podstawowe statystyki dotyczące zbioru
 Rozmiar zbioru:
-```{r}
+```{r wiersze}
 nrow(data)
 ```
 Liczba atrybutów:
-```{r}
+```{r kolumny}
 ncol(data)
 ```
-Wartości:
-```{r}
+Przykładowe wartości (w tym przypadku pierwsze 6 pomiarów):
+```{r wartosci}
 head(data)
 ```
 
 ## Szczegółowa analiza wartości atrybutów
-```{r}
+Z pomocą funkcji `summary` można podejrzeć minimum, maksimum, średnią oraz 1. i 3. kwartyl dla każdego atrybutu:
+```{r analiza}
 summary(data)
 ```
-## Korelacja między zmiennymi
-```{r}
-corrplot(cor(data, use = "complete.obs"), type="upper")
+Wykresy pudełkowe dla każdego atrybutu (z pominięciem identyfikatora i miesiąca) prezentują się następująco:
+```{r boxplots, fig.height = 10}
+data_m <- melt(select(data, -X, -xmonth))
+ggplot(data = data_m, aes(x=variable, y=value)) + geom_boxplot() + facet_wrap( ~ variable, scales="free", ncol = 4)
 ```
+
+## Korelacja między zmiennymi
+Poniższy wykres prezentuje korelacje pomiędzy poszczególnymi atrybutami w zbiorze danych:
+```{r korelacja}
+cor <- cor(data, use = "complete.obs")
+```
+W celu odkrycia najbardziej skorelowanych zmiennych przetransformowano macierz korelacji w macierz trójkątną oraz wypisano wszystkie znaczące korelacje (o współczynniku korelacji większym niż 0.5):
+```{r korbest}
+corUpper <- cor
+corUpper[lower.tri(cor, diag = TRUE)] <- 0
+corHighest <- subset(as.data.frame(as.table(corUpper)), abs(Freq) > 0.5)[order(-abs(corHighest$Freq)),]
+colnames(corHighest) <- c("Atrybut 1", "Atrybut 2", "Współczynnik korelacji")
+corHighest
+```
+Wykres prezentujący graficznie korelacje między wszystkimi zmiennymi prezentuje się następująco:
+```{r korelacjaWykres}
+corrplot(cor, type="upper")
+```
+
 ## Zmiana rozmiaru śledzi w czasie
-```{r}
+```{r wykres}
 data_len <- select(data, X, length)
 n <- 200
 data_aggr <- aggregate(data_len,list(rep(1:(nrow(data_len)%/%n+1),each=n,len=nrow(data_len))),mean)[-1]
 ggplot(data_aggr, aes(x=X, y=length)) + geom_line()
+ggplotly(ggplot(data, aes(x=X, y=length)) + geom_smooth())
 ```
 ## Regresor przewidujący rozmiar śledzia
-
+Aby móc porównywać między sobą różne modele regresji zdefiniowano 5-krotną walidację krzyżową powtórzoną dwukrotnie. Dodatkowo przed uczeniem modelu wartości atrybutów są normalizowane poprzez odjęcie wartości średniej wewnątrz atrybutu oraz podzielenie wyniku przez odchylenie standardowe:
+```{r validation}
+fitControl <- trainControl(method = "repeatedcv", number = 5, repeats = 2, preProcOptions = c('scale', 'center'))  
+```
+Celem analizy jest zbadanie jaki wpływ na rozmiar śledzi ma środowisko, w którym żyją. Z tego powodu modele regresji trenowane są na danych pozbawionych atrybutów związanych z czasem, czyli "X" oraz "xmonth":
+```{r modeldata}
+dataLearning <- select(data, -X, -xmonth)
+```
+Regresja liniowa:
+```{r lars}
+modelLm <- train(length ~ ., data = data_learning, method='lm', trControl=fitControl)
+modelLm
+```
+Lars:
+```{r lars}
+modelLars <- train(length ~ ., data = data_learning, method='lars', trControl=fitControl)
+modelLars
+```
+Ridge:
+```{r ridge}
+modelRidge <- train(length ~ ., data = data_learning, method='ridge', trControl=fitControl)
+modelRidge
+```
+Random forest:
+```{r rf}
+modelRf <- train(length ~ ., data = data_learning, method='rf', ntree=25, importance=T, trControl=fitControl)
+modelRf
+```
 ## Analiza ważności atrybutów 
-
-## 
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, Pdata, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+Najlepszą trafność uzyskano wykorzystując regresor Random Forest. Wyliczona ważność atrybutów prezentuje się następująco: 
+```{r waznosc}
+varImp(modelRf)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
