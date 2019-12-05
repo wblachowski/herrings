@@ -27,8 +27,10 @@ library(knitr)
 library(kableExtra)
 ```
 ## Powtarzalność wyników
+W celu otrzymywania powtarzalnych wyników ustalono stałą wartość ziarna, które zostaje wykorzystywane przez algorytmy korzystające z pseudolosowości:
 ```{r powtarzalnosc}
-set.seed(420)
+seed <- 420
+set.seed(seed)
 ```
 ## Wczytywanie danych z pliku
 Wczytywanie danych odbywa się z użyciem funkcji `read.csv`. Przekazanie znaku zapytania jako argumentu `na.strings` powoduje, że wszystkie brakujące wartości zostaną poprawnie oznaczone jako NA.
@@ -38,7 +40,7 @@ data <- read.csv("sledzie.csv", na.strings = "?")
 ## Przetwarzanie brakujących danych
 W celu uzupełnienia brakujących wartości wykorzystano bibliotekę `mice`. Skorzystano z metody `cart`, która stosuje drzewa regresyjne w celu predykcji brakujących wartości:
 ```{r uzupelnianie}
-data <- complete(mice(data, meth='cart', seed = 420))
+data <- complete(mice(data, meth='cart', seed = seed))
 ```
 ## Podstawowe statystyki dotyczące zbioru
 Rozmiar zbioru:
@@ -66,15 +68,13 @@ ggplot(data = data_m, aes(x=variable, y=value)) + geom_boxplot() + facet_wrap( ~
 ```
 
 ## Korelacja między zmiennymi
-Poniższy wykres prezentuje korelacje pomiędzy poszczególnymi atrybutami w zbiorze danych:
-```{r korelacja}
-cor <- cor(data, use = "complete.obs")
-```
 W celu odkrycia najbardziej skorelowanych zmiennych przetransformowano macierz korelacji w macierz trójkątną oraz wypisano wszystkie znaczące korelacje (o współczynniku korelacji większym niż 0.5):
 ```{r korbest}
+cor <- cor(data, use = "complete.obs")
 corUpper <- cor
 corUpper[lower.tri(cor, diag = TRUE)] <- 0
-corHighest <- subset(as.data.frame(as.table(corUpper)), abs(Freq) > 0.5)[order(-abs(corHighest$Freq)),]
+corHighest <- subset(as.data.frame(as.table(corUpper)), abs(Freq) > 0.5)
+corHighest <- corHighest[order(-abs(corHighest$Freq)),]
 colnames(corHighest) <- c("Atrybut 1", "Atrybut 2", "Współczynnik korelacji")
 corHighest
 ```
@@ -82,15 +82,20 @@ Wykres prezentujący graficznie korelacje między wszystkimi zmiennymi prezentuj
 ```{r korelacjaWykres}
 corrplot(cor, type="upper")
 ```
-
+Można zaobserwować wysoką korelację między dostępnością różnych rodzajów planktonu. Spowodowane jest to prawdopodobnie tym, że pomimo różnic międzygatunkowych każdy rodzaj planktonu potrzebuje mniej więcej zbliżonych warunków do życia i czynniki które wpływają na wzrost lub spadek liczby planktonu jednego rodzaju wpływają w analogiczny sposób na występowanie innych gatunków. Część korelacji jest stosunkowo oczywista i wynika z powiązania między atrybutami. Przykładowo zmienne `fbar` i `cumf` dotyczą tej samej wartości (natężenia połowów w regionie) i występuje między nimi bezpośrednia zależność.
 ## Zmiana rozmiaru śledzi w czasie
-```{r wykres}
+Bardzo duża liczba pobranych wyników stawia wyzwanie przed czytelnym przedstawieniem zmiany rozmiaru śledzia w czasie. Pierwszy z pokazanych wykresów dokonuje uśrednienia 200 obserwacji występujących obok siebie:
+```{r wykresA}
 data_len <- select(data, X, length)
 n <- 200
 data_aggr <- aggregate(data_len,list(rep(1:(nrow(data_len)%/%n+1),each=n,len=nrow(data_len))),mean)[-1]
-ggplot(data_aggr, aes(x=X, y=length)) + geom_line()
+ggplotly(ggplot(data_aggr, aes(x=X, y=length)) + geom_line())
+```
+Drugie podejście korzysta z obecnej w paczce `ggplot` metody `geom_smooth`, która wygładza wykres. W tym przypadku jako argument funkcji przekazywany jest cały zbiór:
+```{r wykres2}
 ggplotly(ggplot(data, aes(x=X, y=length)) + geom_smooth())
 ```
+Oba wykresy pozwalają zauważyć, że rozmiar śledzi przez pierwsze około 15 tysięcy pomiarów, a następnie stopniowo spada.
 ## Regresor przewidujący rozmiar śledzia
 Aby móc porównywać między sobą różne modele regresji zdefiniowano 5-krotną walidację krzyżową powtórzoną dwukrotnie. Dodatkowo przed uczeniem modelu wartości atrybutów są normalizowane poprzez odjęcie wartości średniej wewnątrz atrybutu oraz podzielenie wyniku przez odchylenie standardowe:
 ```{r validation}
@@ -100,22 +105,23 @@ Celem analizy jest zbadanie jaki wpływ na rozmiar śledzi ma środowisko, w kt�
 ```{r modeldata}
 dataLearning <- select(data, -X, -xmonth)
 ```
-Regresja liniowa:
+W ramach analizy skonstruowano modele regresji korzystając z wielu metod:
+* Regresja liniowa:
 ```{r lars}
 modelLm <- train(length ~ ., data = data_learning, method='lm', trControl=fitControl)
 modelLm
 ```
-Lars:
+* Lars:
 ```{r lars}
 modelLars <- train(length ~ ., data = data_learning, method='lars', trControl=fitControl)
 modelLars
 ```
-Ridge:
+* Ridge:
 ```{r ridge}
 modelRidge <- train(length ~ ., data = data_learning, method='ridge', trControl=fitControl)
 modelRidge
 ```
-Random forest:
+* Random forest:
 ```{r rf}
 modelRf <- train(length ~ ., data = data_learning, method='rf', ntree=25, importance=T, trControl=fitControl)
 modelRf
@@ -125,3 +131,17 @@ Najlepszą trafność uzyskano wykorzystując regresor Random Forest. Wyliczona 
 ```{r waznosc}
 varImp(modelRf)
 ```
+Przedstawione wyniki są znormalizowane, co oznacza, że najbardziej znaczący atrybut posiada wartość 100, a najmniej znaczący wartość 0. Atrybutem, który w największym stopniu odpowiada za zmianę długości śledzia jest atrybut `cfin2` oznaczający dostępność planktonu Calanus finmarchicus gat. 2. Trzy kolejne atrybuty w kolejności znaczenia to `totaln` (łączna liczba ryb złowionych w ramach połowu), `sst` (temperatura przy powierzchni wody) oraz `fbar` (natężenie połowów w regionie). Wykresy dla tych atrybutów prezentują się następująco:
+
+```{r}
+install.packages("gridExtra")
+library(gridExtra)
+plots_cfin2 <- ggplot(data, aes(x=X, y=cfin2)) + geom_smooth()
+plots_totaln <- ggplot(data, aes(x=X, y=totaln)) + geom_smooth()
+plots_sst <- ggplot(data, aes(x=X, y=sst)) + geom_smooth()
+plots_fbar <- ggplot(data, aes(x=X, y=fbar)) + geom_smooth()
+
+grid.arrange(plots_cfin2, plots_totaln,plots_sst, plots_fbar, ncol=2)
+
+```
+Pierwszym wnioskiem, który można wysunąć jest podobieństwo kształtów wykresów dla atrybutów `totaln` oraz `fbar`. Atrybut `fbar` oznacza natężenie połowów `totaln` łączną liczbę śledzi. Wykresy potwierdzają intuicję, która podpowiada, że zwiększone połowy będą skutkować obniżeniem liczby śledzi. Zjawisko to można zaobserwować np. podczas pierwszych 10 tysięcy obserwacji, gdy malejące połowy skutkowały dynamicznym wzrostem liczby śledzi. 
