@@ -14,8 +14,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Podsumowanie analizy
 Przedmiotem analizy był zbiór zawierający pomiary trzyletnich śledzi oraz stanu środowiska, w którym żyją. Dane były zbierane na przestrzeni ostatnich 60 lat. Celem analizy było odkrycie przyczyny spadku długości śledzi na przestrzeni lat.
 
+W ramach analizy dokonano podsumowania rozkładów zebranych atrybutów. Policzono także korelacje między zmiennymi. Okazało się, że najbardziej skorelowane są atrybuty reprezentujące liczbę różnych gatunków planktonu. Najmocniej skorelowana z długością śledzi jest natomiast temperatura przy powierzchni wody. W połączeniu z analizą nauczonego regresora prawdopodną wydaje się hipoteza, że atrybut ten w największym stopniu przyczynił się do obserwowanego spadku liczby śledzi. 
+
 ## Wykorzystane biblioteki
-```{r echo = FALSE}
+```{r}
 library(corrplot)
 library(mice)
 library(ggplot2)
@@ -24,10 +26,10 @@ library(dplyr)
 library(caret)
 library(reshape2)
 library(knitr)
-library(kableExtra)
+library(gridExtra)
 ```
 ## Powtarzalność wyników
-W celu otrzymywania powtarzalnych wyników ustalono stałą wartość ziarna, które zostaje wykorzystywane przez algorytmy korzystające z pseudolosowości:
+W celu otrzymywania powtarzalnych wyników ustalono stałą wartość ziarna, która zostaje wykorzystywana przez algorytmy korzystające z pseudolosowości:
 ```{r powtarzalnosc}
 seed <- 420
 set.seed(seed)
@@ -82,7 +84,9 @@ Wykres prezentujący graficznie korelacje między wszystkimi zmiennymi prezentuj
 ```{r korelacjaWykres}
 corrplot(cor, type="upper")
 ```
-Można zaobserwować wysoką korelację między dostępnością różnych rodzajów planktonu. Spowodowane jest to prawdopodobnie tym, że pomimo różnic międzygatunkowych każdy rodzaj planktonu potrzebuje mniej więcej zbliżonych warunków do życia i czynniki które wpływają na wzrost lub spadek liczby planktonu jednego rodzaju wpływają w analogiczny sposób na występowanie innych gatunków. Część korelacji jest stosunkowo oczywista i wynika z powiązania między atrybutami. Przykładowo zmienne `fbar` i `cumf` dotyczą tej samej wartości (natężenia połowów w regionie) i występuje między nimi bezpośrednia zależność.
+
+Można zaobserwować wysoką korelację między dostępnością różnych rodzajów planktonu. Spowodowane jest to prawdopodobnie tym, że pomimo różnic międzygatunkowych każdy rodzaj planktonu potrzebuje mniej więcej zbliżonych warunków do życia i czynniki które wpływają na wzrost lub spadek liczby planktonu jednego rodzaju wpływają w analogiczny sposób na występowanie innych gatunków. Część korelacji jest stosunkowo oczywista i wynika z powiązania między atrybutami. Przykładowo zmienne `fbar` i `cumf` dotyczą tej samej wartości (natężenia połowów w regionie) i występuje między nimi bezpośrednia zależność. Atrybutem najmocniej skorelowanym z długością śledzi jest `sst` oznaczający temperaturę przy powierzchni wody.
+
 ## Zmiana rozmiaru śledzi w czasie
 Bardzo duża liczba pobranych wyników stawia wyzwanie przed czytelnym przedstawieniem zmiany rozmiaru śledzia w czasie. Pierwszy z pokazanych wykresów dokonuje uśrednienia 200 obserwacji występujących obok siebie:
 ```{r wykresA}
@@ -95,7 +99,8 @@ Drugie podejście korzysta z obecnej w paczce `ggplot` metody `geom_smooth`, kt�
 ```{r wykres2}
 ggplotly(ggplot(data, aes(x=X, y=length)) + geom_smooth())
 ```
-Oba wykresy pozwalają zauważyć, że rozmiar śledzi przez pierwsze około 15 tysięcy pomiarów, a następnie stopniowo spada.
+Oba wykresy pozwalają zauważyć, że rozmiar śledzi przez pierwsze około 17 tysięcy pomiarów, a następnie stopniowo spada.
+
 ## Regresor przewidujący rozmiar śledzia
 Aby móc porównywać między sobą różne modele regresji zdefiniowano 5-krotną walidację krzyżową powtórzoną dwukrotnie. Dodatkowo przed uczeniem modelu wartości atrybutów są normalizowane poprzez odjęcie wartości średniej wewnątrz atrybutu oraz podzielenie wyniku przez odchylenie standardowe:
 ```{r validation}
@@ -107,25 +112,26 @@ dataLearning <- select(data, -X, -xmonth)
 ```
 W ramach analizy skonstruowano modele regresji korzystając z wielu metod:
 * Regresja liniowa:
-```{r lars}
-modelLm <- train(length ~ ., data = data_learning, method='lm', trControl=fitControl)
+```{r lM}
+modelLm <- train(length ~ ., data = dataLearning, method='lm', trControl=fitControl)
 modelLm
 ```
 * Lars:
 ```{r lars}
-modelLars <- train(length ~ ., data = data_learning, method='lars', trControl=fitControl)
+modelLars <- train(length ~ ., data = dataLearning, method='lars', trControl=fitControl)
 modelLars
 ```
 * Ridge:
 ```{r ridge}
-modelRidge <- train(length ~ ., data = data_learning, method='ridge', trControl=fitControl)
+modelRidge <- train(length ~ ., data = dataLearning, method='ridge', trControl=fitControl)
 modelRidge
 ```
 * Random forest:
 ```{r rf}
-modelRf <- train(length ~ ., data = data_learning, method='rf', ntree=25, importance=T, trControl=fitControl)
+modelRf <- train(length ~ ., data = dataLearning, method='rf', ntree=25, importance=T, trControl=fitControl)
 modelRf
 ```
+
 ## Analiza ważności atrybutów 
 Najlepszą trafność uzyskano wykorzystując regresor Random Forest. Wyliczona ważność atrybutów prezentuje się następująco: 
 ```{r waznosc}
@@ -134,8 +140,6 @@ varImp(modelRf)
 Przedstawione wyniki są znormalizowane, co oznacza, że najbardziej znaczący atrybut posiada wartość 100, a najmniej znaczący wartość 0. Atrybutem, który w największym stopniu odpowiada za zmianę długości śledzia jest atrybut `cfin2` oznaczający dostępność planktonu Calanus finmarchicus gat. 2. Trzy kolejne atrybuty w kolejności znaczenia to `totaln` (łączna liczba ryb złowionych w ramach połowu), `sst` (temperatura przy powierzchni wody) oraz `fbar` (natężenie połowów w regionie). Wykresy dla tych atrybutów prezentują się następująco:
 
 ```{r}
-install.packages("gridExtra")
-library(gridExtra)
 plots_cfin2 <- ggplot(data, aes(x=X, y=cfin2)) + geom_smooth()
 plots_totaln <- ggplot(data, aes(x=X, y=totaln)) + geom_smooth()
 plots_sst <- ggplot(data, aes(x=X, y=sst)) + geom_smooth()
@@ -144,4 +148,7 @@ plots_fbar <- ggplot(data, aes(x=X, y=fbar)) + geom_smooth()
 grid.arrange(plots_cfin2, plots_totaln,plots_sst, plots_fbar, ncol=2)
 
 ```
-Pierwszym wnioskiem, który można wysunąć jest podobieństwo kształtów wykresów dla atrybutów `totaln` oraz `fbar`. Atrybut `fbar` oznacza natężenie połowów `totaln` łączną liczbę śledzi. Wykresy potwierdzają intuicję, która podpowiada, że zwiększone połowy będą skutkować obniżeniem liczby śledzi. Zjawisko to można zaobserwować np. podczas pierwszych 10 tysięcy obserwacji, gdy malejące połowy skutkowały dynamicznym wzrostem liczby śledzi. 
+
+Pierwszym wnioskiem, który można wysunąć jest podobieństwo kształtów wykresów dla atrybutów `totaln` oraz `fbar`. Atrybut `fbar` oznacza natężenie połowów `totaln` łączną liczbę śledzi. Wykresy potwierdzają intuicję, która podpowiada, że zwiększone połowy będą skutkować obniżeniem liczby śledzi zwłowionych w ramach pojedynczego połowu. Zjawisko to można zaobserwować np. podczas pierwszych 10 tysięcy obserwacji, gdy meljąca intensyfikacja połowów skutkowała dynamicznym wzrostem liczby złowionych jednorazowo ryb. 
+
+W przypadku ptzebiegu atrybutu `cfn2` możemy zaobserwować przebieg zbliżony do przebiegu długości śledzi, lecz z lekkim przesunięciem. Atrybut ten oznacza występowanie planktonu konkretnego gatunku. Możliwym wyjaśnieniem obserwowanych zmian jest fakt, że rosnąca liczba ryb powoduje zmniejszenie ilości dostępnego planktonu, który stanowi dla nich pożywienie. Tłumaczy to początkowy spadek ilości planktonu, gdy liczba śledzi rośnie oraz późniejszy wzrost, gdy liczba ryb maleje. Tajemniczy pozostaje jednak gwałtowny spadek następujący mniej więcej po 35 tysiącach pomiarów. Atrybut `sst` charakteryzuje dokładnie odwrotny przebieg - początkowy spadek zmienia się w połowie pomiarów w znaczący wzrost. Analiza korelacji pokazała dodatkowo, że między atrybutem `sst` oraz długością śledzia występuje silna znacząca korelacja ujemna. Pozwala to sądzić, że przyczyną, która w dużym stopniu spowodowała spadek liczby śledzi może być wzrost temperatury przy powierzchni wody.
